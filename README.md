@@ -22,6 +22,11 @@ Download and Install Dependencies:
 ```
 git mod tidy
 ```
+To run the LingerAPI:
+```
+go run .
+```
+
 # Example
 
 Request:
