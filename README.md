@@ -4,10 +4,30 @@ LingerAPI is a tool designed to retrieve information from TikTok profiles using 
 # Usage
 To use LingerAPI, send a GET request to /api/tiktok?username=, where username is the TikTok username for which you want to obtain information.
 
-Example request:
+# Install
+
+Clone the LingerAPI repository from GitHub:
+```
+git clone https://github.com/trashplusplus/LingerAPI.git
+```
+Change your working directory to the LingerAPI project folder:
+```
+cd LingerAPI
+```
+Initialize the Go Module:
+```
+git mod init LingerAPI
+```
+Download and Install Dependencies:
+```
+git mod tidy
+```
+# Example
+
+Request:
 
 ```
-GET /api/tiktok?username=johndoe
+GET /api/tiktok?username=username
 ```
 
 Response:
