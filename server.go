@@ -116,6 +116,9 @@ func (s *LingerServer) StartServer(){
 
          if !isFound {
            responseData = NotFoundData{Message: "tt is not found"}
+
+            log.Println(rspray("[Linger]: tt is not found"))
+
          }
 
             jsonData, err := json.Marshal(responseData)
