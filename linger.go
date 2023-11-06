@@ -78,7 +78,7 @@ func decodeBio(bio string) (string, error) {
 }
 
 func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string){
-    log.Println("Scrapping TikTok...")
+    log.Println(mspray("[Linger]: Scrapping TikTok..."))
     c := colly.NewCollector()
     found := false
     var followers int
@@ -108,8 +108,10 @@ func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string){
             followers, _ = strconv.Atoi(match[1])
             found = true
         }
+         log.Println(mspray("[Linger]: ") + match[1] + " followers")
 
     })
+
 
     c.Visit(_prefix + tiktokUrl)
 	  return found, followers, pageHTML
