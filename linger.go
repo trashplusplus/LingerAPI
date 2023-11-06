@@ -2,7 +2,6 @@ package main
 
 import(
 "github.com/gocolly/colly/v2"
-"github.com/fatih/color"
 "strings"
 "io/ioutil"
 "regexp"
@@ -11,8 +10,7 @@ import(
 "log"
 "os"
 "unicode/utf8"
-"net/http"
-
+//"net/http"
 )
 
 type Linger struct{
@@ -21,27 +19,6 @@ type Linger struct{
   InternalFilter []string
 }
 
-//colors
-func rspray(text string) string {
-	_color := color.New(color.FgRed)
-	return _color.Sprint(text)
-}
-
-func mspray(text string) string {
-	_color := color.New(color.FgMagenta)
-	return _color.Sprint(text)
-}
-
-func yspray(text string) string {
-	_color := color.New(color.FgYellow)
-	return _color.Sprint(text)
-}
-
-func bspray(text string) string {
-	_color := color.New(color.FgBlue)
-	return _color.Sprint(text)
-}
-//colors
 
 func NewLinger() *Linger{
     newLinger := &Linger{
@@ -50,16 +27,12 @@ func NewLinger() *Linger{
     InternalFilter: readFilterFromFile("filter/soc.txt"),
     }
 
-
     logger := log.New(os.Stdout,"", log.Ldate|log.Ltime)
     log.SetOutput(logger.Writer())
-
-   log.Printf("[LingerAPI] v%s searching...", newLinger.Version)
-
+   //log.Printf("[LingerAPI] v%s searching...", newLinger.Version)
 
    return newLinger
 }
-
 
 
 func readFilterFromFile(filename string) []string {
@@ -104,18 +77,20 @@ func decodeBio(bio string) (string, error) {
     return bio, nil
 }
 
-func (s *Linger) ScrapTikTok(tiktokUrl string, client *http.Client) (bool, int){
+func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string){
     log.Println("Scrapping TikTok...")
     c := colly.NewCollector()
     found := false
     var followers int
+    var pageHTML string
     _prefix := "https://tiktok.com/@"
 
-    c.WithTransport(client.Transport)
+    //c.WithTransport(client.Transport)
 
     c.OnHTML("html", func(e *colly.HTMLElement) {
         //get html
-        pageHTML := e.Text
+        pageHTML = e.Text
+        //log.Println("PageHTML: " + pageHTML)
         //get all json with flag followerCount
         startIndex := strings.Index(pageHTML, `{"followerCount":`)
         if startIndex < 0 {
@@ -137,12 +112,12 @@ func (s *Linger) ScrapTikTok(tiktokUrl string, client *http.Client) (bool, int){
     })
 
     c.Visit(_prefix + tiktokUrl)
-	  return found, followers
+	  return found, followers, pageHTML
 
 }
 
 
-func (s *Linger) StartScrapping(username string) ([]string, []string, error){
+func (s *Linger) StartScrapping(username string, pageHTML string) ([]string, []string, error){
 
     c := colly.NewCollector()
 
@@ -159,17 +134,14 @@ func (s *Linger) StartScrapping(username string) ([]string, []string, error){
     var InternalLinks[] string
 
 
-    c.OnHTML("html", func(e * colly.HTMLElement){
-
        //Extracting BioLink from json start with tag bioLink
        extractedBio := ""
        //find all html
-       pageHTML := e.Text
        //find text starts with bioLink
        startIndex := strings.Index(pageHTML, "bioLink")
        //if not exist - return
        if startIndex < 0 {
-            return
+            return BioLinks, InternalLinks, nil
         }
 
         //text started with bioLink
@@ -188,10 +160,9 @@ func (s *Linger) StartScrapping(username string) ([]string, []string, error){
 		    	  if err != nil{
 		    	  }
             log.Println(yspray("Extracted Bio: " + res))
-
-
 		    }
 
+    //parsing linktree
         for _, filterLink := range s.BioFilter{
             if extractedBio != "" && strings.Contains(strings.ToLower(extractedBio), filterLink){
                    log.Println(yspray("Link from filter: " + filterLink))
@@ -207,13 +178,11 @@ func (s *Linger) StartScrapping(username string) ([]string, []string, error){
                               }
                           }
                       })
-
                      if extractedBio != ""{
                       c.Visit(extractedBio)
                      }
             }
         }
-    })
 
     c.OnRequest(func(r *colly.Request){
         log.Println(rspray("Request: "), r.URL)

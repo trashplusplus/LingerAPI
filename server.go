@@ -6,7 +6,7 @@ import (
   "log"
   "math/rand"
   "time"
-  "net/url"
+  //"net/url"
 )
 
 type LingerServer struct{
@@ -42,39 +42,41 @@ func (s *LingerServer) StartServer(){
     rand.Seed(time.Now().UnixNano())
 
     serverIP := s.Host + ":" + s.Port
-    log.Println("[LingerAPI]: Started at", serverIP)
+    log.Println(mspray("[LingerAPI]: Started at: "), serverIP)
 
 
     //proxy list loading
-    proxyList, proxyErr := getProxyFile("proxy.txt")
+    //proxyList, proxyErr := getProxyFile("proxy.txt")
+    /*
     if proxyErr != nil {
         log.Printf("Ошибка: %v\n", proxyErr)
         return
     }else{
       log.Println("ProxyList sucessfully loaded")
     }
-
+    */
 
 
     http.HandleFunc("/api/tiktok", func(w http.ResponseWriter, r *http.Request) {
          linger := NewLinger()
-
          //get request
         if r.Method != http.MethodGet {
             http.Error(w, "Method is not available", http.StatusMethodNotAllowed)
             return
         }
 
-        //randomize proxy
-
+        //randomize
+        /*
         randomIndex := rand.Intn(len(proxyList))
         randomProxy := proxyList[randomIndex]
         proxyURL, proxyUrlError := url.Parse("http://" + randomProxy)
         if proxyUrlError != nil {
           log.Fatalf("Url Proxy error: ", proxyUrlError)
         }
+        */
 
         //proxy client
+        /*
         client := &http.Client{
           Transport: &http.Transport{
               Proxy: http.ProxyURL(proxyURL),
@@ -82,16 +84,16 @@ func (s *LingerServer) StartServer(){
           Timeout: time.Second * 15, //timeout
         }
 
-
          log.Println("Used Proxy: ", randomProxy)
+         */
 
          name := r.URL.Query().Get("username")
          var responseData interface{}
 
-          isFound, followers := linger.ScrapTikTok(name, client)
+         isFound, followers, pageHTML := linger.ScrapTikTok(name)
 
          if isFound {
-           bio, internalLinks, err := linger.StartScrapping(name)
+           bio, internalLinks, err := linger.StartScrapping(name, pageHTML)
 
          if err != nil{
            log.Println("Error:", err)
