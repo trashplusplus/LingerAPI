@@ -10,6 +10,11 @@ func rspray(text string) string {
 	return _color.Sprint(text)
 }
 
+func gspray(text string) string {
+	_color := color.New(color.FgGreen)
+	return _color.Sprint(text)
+}
+
 func mspray(text string) string {
 	_color := color.New(color.FgMagenta)
 	return _color.Sprint(text)

@@ -6,7 +6,7 @@ import (
   "log"
   "math/rand"
   "time"
-  //"net/url"
+
 )
 
 type LingerServer struct{
@@ -16,8 +16,10 @@ type LingerServer struct{
 
 //
 type ResponseData struct{
-  Username string `json:"username"`
+  UniqueId string `json:"uniqueId"`
   Followers int `json:"followers"`
+  SecUid string `json:"secUid"`
+  Id int `json:"id"`
   Biolink []string `json:"bio"`
   SocLinks []string `json:"soclinks"`
 
@@ -37,6 +39,7 @@ func NewLingerServer() *LingerServer {
 	}
 }
 
+
 func (s *LingerServer) StartServer(){
     //randomize index of proxy in list
     rand.Seed(time.Now().UnixNano())
@@ -44,20 +47,8 @@ func (s *LingerServer) StartServer(){
     serverIP := s.Host + ":" + s.Port
     log.Println(mspray("[LingerAPI]: Started at: "), serverIP)
 
-
-    //proxy list loading
-    //proxyList, proxyErr := getProxyFile("proxy.txt")
-    /*
-    if proxyErr != nil {
-        log.Printf("Ошибка: %v\n", proxyErr)
-        return
-    }else{
-      log.Println("ProxyList sucessfully loaded")
-    }
-    */
-
-
     http.HandleFunc("/api/tiktok", func(w http.ResponseWriter, r *http.Request) {
+
          linger := NewLinger()
          //get request
         if r.Method != http.MethodGet {
@@ -65,60 +56,45 @@ func (s *LingerServer) StartServer(){
             return
         }
 
-        //randomize
-        /*
-        randomIndex := rand.Intn(len(proxyList))
-        randomProxy := proxyList[randomIndex]
-        proxyURL, proxyUrlError := url.Parse("http://" + randomProxy)
+        proxyURL, proxyUrlError := parseProxy()
         if proxyUrlError != nil {
           log.Fatalf("Url Proxy error: ", proxyUrlError)
         }
-        */
 
         //proxy client
-        /*
         client := &http.Client{
-          Transport: &http.Transport{
-              Proxy: http.ProxyURL(proxyURL),
-          },
-          Timeout: time.Second * 15, //timeout
+          Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
         }
 
-         log.Println("Used Proxy: ", randomProxy)
-         */
 
          name := r.URL.Query().Get("username")
          var responseData interface{}
 
-         isFound, followers, pageHTML := linger.ScrapTikTok(name)
+            isFound, followers, secUid, id, pageHTML := linger.ScrapTikTokProxy(name, client)
+            //isFound, followers, secUid, id, pageHTML := linger.MockScrapTikTok(name)
 
-         if isFound {
-           bio, internalLinks, err := linger.StartScrapping(name, pageHTML)
+            if isFound {
 
-         if err != nil{
-           log.Println("Error:", err)
-            return
-         }
+              bio, internalLinks, err := linger.StartScrapping(name, pageHTML)
+              if err != nil{
+                log.Println(rspray("Scrapping error: "), err)
+              }
 
-          if name == "" {
-              http.Error(w, "username param is missing", http.StatusBadRequest)
-              return
-          }
+              //log.Println(rspray("PageHTML: "), pageHTML)
+              responseData = ResponseData{
+                UniqueId: name,
+                Biolink: bio,
+                SocLinks: internalLinks,
+                Followers: followers,
+                SecUid: secUid,
+                Id: id,
+              }
 
-          responseData = ResponseData{
-              Username: name,
-              Biolink: bio,
-              SocLinks: internalLinks,
-              Followers: followers,
             }
-
-         }
 
          if !isFound {
            responseData = NotFoundData{Message: "tt is not found"}
-
             log.Println(rspray("[Linger]: tt is not found"))
-
          }
 
             jsonData, err := json.Marshal(responseData)
@@ -126,6 +102,7 @@ func (s *LingerServer) StartServer(){
                 http.Error(w, err.Error(), http.StatusInternalServerError)
                 return
             }
+
 
         //response
         w.Header().Set("Content-Type", "application/json")
