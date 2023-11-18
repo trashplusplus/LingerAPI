@@ -1,8 +1,6 @@
 package main
 
-
-
-func main(){
-    server := NewLingerServer()
-    server.StartServer()
+func main() {
+	server := NewLingerServer()
+	server.StartServer()
 }

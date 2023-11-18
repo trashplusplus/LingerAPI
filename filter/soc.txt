@@ -3,3 +3,4 @@ youtube.com
 facebook.com
 twitter.com
 twitch.tv
+youtu.be
