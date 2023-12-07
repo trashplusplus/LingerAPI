@@ -1,6 +1,9 @@
 # LingerAPI
 LingerAPI is a tool designed to retrieve information from TikTok profiles using the /api/tiktok?username= endpoint. It returns results in JSON format, including potential bio links and social media profiles found within a user's biography.
 
+![image](https://github.com/trashplusplus/LingerAPI/assets/19663951/2ba39fdc-f0ff-457f-a514-2bdc60a18415)
+
+
 # Usage
 To use LingerAPI, send a GET request to /api/tiktok?username=, where username is the TikTok username for which you want to obtain information.
 
