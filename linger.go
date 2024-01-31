@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"github.com/gocolly/colly/v2"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"regexp"
@@ -11,19 +13,24 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"fmt"
+	"encoding/json"
 )
 
+//describe all fields here
 type Linger struct {
 	Version        string
 	BioFilter      []string
 	InternalFilter []string
+	//DeviceHeader []string
 }
 
-func NewLinger() *Linger {
+func NewLinger(bioFilter, internalFilter []string) *Linger {
 	newLinger := &Linger{
-		Version:        "0.4",
-		BioFilter:      readFilterFromFile("filter/bio.txt"),
-		InternalFilter: readFilterFromFile("filter/soc.txt"),
+		Version:        "0.5",
+		BioFilter:      bioFilter,
+		InternalFilter: internalFilter,
+		//DeviceHeader: deviceHeader,
 	}
 
 	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime)
@@ -33,6 +40,7 @@ func NewLinger() *Linger {
 	return newLinger
 }
 
+//to read .txt
 func readFilterFromFile(filename string) []string {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -74,83 +82,166 @@ func decodeBio(bio string) (string, error) {
 	return bio, nil
 }
 
-func (s *Linger) MockScrapTikTok(tiktokUrl string) (bool, int, string, int, string) {
+func (s *Linger) MockScrapTikTok(tiktokUrl string) (bool, int, string, int) {
 	log.Println(mspray("[Linger]: Scrapping "), tiktokUrl)
-	return true, 111, "testUID", 1010101010, "htmlPage"
+	return true, 111, "testUID", 1010101010
 }
 
-func (s *Linger) ScrapTikTokProxy(tiktokUrl string, client *http.Client) (bool, int, string, int, string) {
 
-	log.Println(mspray("[Linger]: Scrapping TikTok for"), tiktokUrl)
+
+
+
+func (s *Linger) ScrapTikTokProxy(tiktokUrl string, client *http.Client, pageHTMLChannel chan<- string){
+
+	log.Println(mspray("[Linger Proxy]: Scrapping TikTok for"), tiktokUrl)
 	c := colly.NewCollector()
-	found := false
-	var followers int
-	var secUid string
-	var id int
 	var pageHTML string
 	_prefix := "https://tiktok.com/@"
 
+	//rand.Seed(time.Now().UnixNano())
+  //proxy
 	if client != nil {
 		c.WithTransport(client.Transport)
 	}
 
 	c.OnHTML("html", func(e *colly.HTMLElement) {
-		//get html
+		//e.Response.Headers.Set("User-Agent", "")
 		pageHTML = e.Text
-		//log.Println("PageHTML: " + pageHTML)
-		//get all json with flag followerCount
-		startIndex := strings.Index(pageHTML, `{"followerCount":`)
+		if pageHTML == ""{
+      	log.Println(rspray("[Linger Proxy]: PageHTML is empty"))
+		}
+    //передаем в канал
+    pageHTMLChannel <- pageHTML
+    })
+
+    //посещаем
+    c.Visit(_prefix + tiktokUrl)
+}
+
+//GetFollowers
+func (s *Linger) GetFollowers(pageHTML string, followersChannel chan<- int){
+  	startIndex := strings.Index(pageHTML, `{"followerCount":`)
+
 
 		if startIndex < 0 {
-			return
+			followersChannel <- 0
+			close(followersChannel)
+			log.Println(mspray("[Linger Proxy]: No Followers Tag"))
+  		return
 		}
 
 		jsonString := pageHTML[startIndex:]
-		//log.Println(jsonString)
+
+    var followers int //result
 
 		//search tag by regexp
 		re := regexp.MustCompile(`"followerCount":\s*(\d+)`)
 		match := re.FindStringSubmatch(jsonString)
 		if len(match) == 2 {
 			followers, _ = strconv.Atoi(match[1])
-			found = true
+      followersChannel <- followers
+      log.Println(mspray("[Linger Proxy]: Followers"), followers)
 		}
-		log.Println(mspray("[Linger]: ") + match[1] + " followers")
-
-	})
-
-	startTime := time.Now()
-	c.Visit(_prefix + tiktokUrl)
-	endTime := time.Now()
-	elapsedTime := endTime.Sub(startTime)
-	log.Printf(gspray("Time: %s"), elapsedTime)
-
-	//extracting secUID
-	secUidIndex := strings.Index(pageHTML, `"secUid":"`)
-	if secUidIndex > 0 {
-		secUidJson := pageHTML[secUidIndex:]
-		secUidRegex := regexp.MustCompile(`"secUid"\s*:\s*"([^"]+)"\,`)
-		secUidMatch := secUidRegex.FindStringSubmatch(secUidJson)
-		if len(secUidMatch) == 2 {
-			secUid = secUidMatch[1]
-		}
-	}
-
-	//extracting id
-	idIndex := strings.Index(pageHTML, `{"user":{"id":"`)
-	if idIndex > 0 {
-		idJson := pageHTML[idIndex:]
-		idRegex := regexp.MustCompile(`{"user":{"id":"\s*(\d+)`)
-		idMatch := idRegex.FindStringSubmatch(idJson)
-
-		if len(idMatch) == 2 {
-			id, _ = strconv.Atoi(idMatch[1])
-		}
-	}
-
-	return found, followers, secUid, id, pageHTML
 
 }
+
+
+
+
+//GetSecUid
+func (s *Linger) GetSecUid(pageHTML string, secUidChannel chan<- string){
+    secUidIndex := strings.Index(pageHTML, `"secUid":"`)
+
+    var secUid string
+
+		if secUidIndex > 0 {
+			secUidJson := pageHTML[secUidIndex:]
+			secUidRegex := regexp.MustCompile(`"secUid"\s*:\s*"([^"]+)"\,`)
+			secUidMatch := secUidRegex.FindStringSubmatch(secUidJson)
+			if len(secUidMatch) == 2 {
+				secUid = secUidMatch[1]
+        secUidChannel <- secUid
+
+			}
+		}else{
+      secUidChannel <- ""
+			close(secUidChannel)
+			log.Println(mspray("[Linger Proxy]: No SecUid Tag"))
+  		return
+		}
+
+
+}
+
+//GetId
+func (s *Linger) GetId(pageHTML string, idChannel chan<-int){
+  		idIndex := strings.Index(pageHTML, `{"user":{"id":"`)
+
+  	var id int
+
+		if idIndex > 0 {
+			idJson := pageHTML[idIndex:]
+			idRegex := regexp.MustCompile(`{"user":{"id":"\s*(\d+)`)
+			idMatch := idRegex.FindStringSubmatch(idJson)
+
+			if len(idMatch) == 2 {
+				id, _ = strconv.Atoi(idMatch[1])
+				 idChannel <- id
+
+			}
+		}else{
+      idChannel <- 0
+			close(idChannel)
+			log.Println(mspray("[Linger Proxy]: No Id Tag"))
+  		return
+		}
+
+}
+
+//TODO
+//GetRedirectUrl
+func (s *Linger) GetRedirectUrl(pageHTML string, redirectUrlChannel chan<- string){
+    //redirectURL, captcha
+
+		redirectUrlIndex := strings.Index(pageHTML, `"redirectUrl":"`)
+
+		if redirectUrlIndex > 0 {
+			redirectUrlJson := pageHTML[redirectUrlIndex:]
+			redirectUrlRegex := regexp.MustCompile(`"redirectUrl":"([^"]+)"`)
+			redirectUrlMatch := redirectUrlRegex.FindStringSubmatch(redirectUrlJson)
+      if len(redirectUrlMatch) == 2 {
+          log.Println(yspray("Raw redirectUrl: " + redirectUrlMatch[1]))
+          _redirectResult, err := decodeString(redirectUrlMatch[1])
+          	if err != nil{
+            log.Println("decodeString error: ", err)
+		        }
+            redirectUrlChannel <- _redirectResult
+		        log.Println(yspray("Found redirectUrl: " + _redirectResult))
+      }
+
+		}else{
+		  redirectUrlChannel <- ""
+			close(redirectUrlChannel)
+			log.Println(mspray("[Linger Proxy]: No RedirectURL Tag"))
+  		return
+		}
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string, int, string) {
 
@@ -162,11 +253,42 @@ func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string, int, string) 
 	var id int
 	var pageHTML string
 	_prefix := "https://tiktok.com/@"
+	rand.Seed(time.Now().UnixNano())
+
+	//todo random element from DeviceHeader
+
+	//randomElementIndex := rand.Intn(len(s.DeviceHeader))
 
 	c.OnHTML("html", func(e *colly.HTMLElement) {
-		//get html
+
+		e.Response.Headers.Set("User-Agent", "")
+		//log.Println(yspray("[User-Agent]: " + s.DeviceHeader[randomElementIndex]))
+
 		pageHTML = e.Text
-		//log.Println("PageHTML: " + pageHTML)
+		file, err := os.Create("out.txt")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer file.Close()
+
+		writer := bufio.NewWriter(file)
+
+		_, err = writer.WriteString(pageHTML)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = writer.Flush()
+		if err != nil {
+			log.Fatal(err)
+		}
+		//redirectUrl checking
+		redirectUrlIndex := strings.Index(pageHTML, `redirectUrl`)
+
+		if redirectUrlIndex > 0 {
+			log.Println(yspray("Found redirectUrl"))
+		}
+
 		//get all json with flag followerCount
 		startIndex := strings.Index(pageHTML, `{"followerCount":`)
 
@@ -175,6 +297,7 @@ func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string, int, string) 
 		}
 
 		jsonString := pageHTML[startIndex:]
+
 		//log.Println(jsonString)
 
 		//search tag by regexp
@@ -183,6 +306,7 @@ func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string, int, string) 
 		if len(match) == 2 {
 			followers, _ = strconv.Atoi(match[1])
 			found = true
+
 		}
 		log.Println(mspray("[Linger]: ") + match[1] + " followers")
 
@@ -194,6 +318,7 @@ func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string, int, string) 
 	elapsedTime := endTime.Sub(startTime)
 	log.Printf(bspray("Time: %s"), elapsedTime)
 	//extracting secUID
+
 	secUidIndex := strings.Index(pageHTML, `"secUid":"`)
 	if secUidIndex > 0 {
 		secUidJson := pageHTML[secUidIndex:]
@@ -215,6 +340,7 @@ func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string, int, string) 
 			id, _ = strconv.Atoi(idMatch[1])
 		}
 	}
+
 	return found, followers, secUid, id, pageHTML
 
 }
@@ -330,4 +456,21 @@ func (s *Linger) StartScrapping(username string, pageHTML string) ([]string, []s
 
 	return BioLinks, InternalLinks, nil
 
+}
+
+func decodeString(input string) (string, error) {
+	// Декодирование JSON строки
+	var decodedStr string
+	err := json.Unmarshal([]byte(`"`+input+`"`), &decodedStr)
+	if err != nil {
+		return "", fmt.Errorf("ошибка при декодировании JSON: %v", err)
+	}
+
+	// Замена escape-последовательностей Unicode
+	decodedStr, err = strconv.Unquote(`"` + decodedStr + `"`)
+	if err != nil {
+		return "", fmt.Errorf("ошибка при раскодировании escape-последовательностей: %v", err)
+	}
+
+	return decodedStr, nil
 }
