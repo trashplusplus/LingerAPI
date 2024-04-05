@@ -1,10 +1,10 @@
 package main
 
-import(
-"github.com/fatih/color"
+import (
+	"github.com/fatih/color"
 )
 
-//here functions to paint text
+// functions to paint text
 func rspray(text string) string {
 	_color := color.New(color.FgRed)
 	return _color.Sprint(text)
@@ -29,4 +29,3 @@ func bspray(text string) string {
 	_color := color.New(color.FgBlue)
 	return _color.Sprint(text)
 }
-
