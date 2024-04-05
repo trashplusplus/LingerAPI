@@ -2,10 +2,10 @@ package main
 
 import (
 	"bufio"
-	"github.com/gocolly/colly/v2"
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"regexp"
@@ -13,34 +13,32 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-	"fmt"
-	"encoding/json"
+
+	"github.com/gocolly/colly/v2"
 )
 
-//describe all fields here
+//write documentation of this file
+
 type Linger struct {
 	Version        string
 	BioFilter      []string
 	InternalFilter []string
-	//DeviceHeader []string
 }
 
 func NewLinger(bioFilter, internalFilter []string) *Linger {
 	newLinger := &Linger{
-		Version:        "0.5",
+		Version:        "0.6",
 		BioFilter:      bioFilter,
 		InternalFilter: internalFilter,
-		//DeviceHeader: deviceHeader,
 	}
 
 	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime)
 	log.SetOutput(logger.Writer())
-	//log.Printf("[LingerAPI] v%s searching...", newLinger.Version)
 
 	return newLinger
 }
 
-//to read .txt
+// to read .txt
 func readFilterFromFile(filename string) []string {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -87,19 +85,14 @@ func (s *Linger) MockScrapTikTok(tiktokUrl string) (bool, int, string, int) {
 	return true, 111, "testUID", 1010101010
 }
 
-
-
-
-
-func (s *Linger) ScrapTikTokProxy(tiktokUrl string, client *http.Client, pageHTMLChannel chan<- string){
+func (s *Linger) ScrapTikTokProxy(tiktokUrl string, client *http.Client, pageHTMLChannel chan<- string) {
 
 	log.Println(mspray("[Linger Proxy]: Scrapping TikTok for"), tiktokUrl)
 	c := colly.NewCollector()
 	var pageHTML string
 	_prefix := "https://tiktok.com/@"
 
-	//rand.Seed(time.Now().UnixNano())
-  //proxy
+	//proxy
 	if client != nil {
 		c.WithTransport(client.Transport)
 	}
@@ -107,141 +100,137 @@ func (s *Linger) ScrapTikTokProxy(tiktokUrl string, client *http.Client, pageHTM
 	c.OnHTML("html", func(e *colly.HTMLElement) {
 		//e.Response.Headers.Set("User-Agent", "")
 		pageHTML = e.Text
-		if pageHTML == ""{
-      	log.Println(rspray("[Linger Proxy]: PageHTML is empty"))
+		if pageHTML == "" {
+			log.Println(rspray("[Linger Proxy]: PageHTML is empty"))
 		}
-    //передаем в канал
-    pageHTMLChannel <- pageHTML
-    })
+		//передаем в канал
+		pageHTMLChannel <- pageHTML
+	})
 
-    //посещаем
-    c.Visit(_prefix + tiktokUrl)
+	//посещаем
+	c.Visit(_prefix + tiktokUrl)
 }
 
-//GetFollowers
-func (s *Linger) GetFollowers(pageHTML string, followersChannel chan<- int){
-  	startIndex := strings.Index(pageHTML, `{"followerCount":`)
+// GetFollowers
+func (s *Linger) GetFollowers(pageHTML string, followersChannel chan<- int) {
+	startIndex := strings.Index(pageHTML, `{"followerCount":`)
 
+	if startIndex < 0 {
+		followersChannel <- 0
+		close(followersChannel)
+		log.Println(mspray("[Linger Proxy]: No Followers Tag"))
+		return
+	}
 
-		if startIndex < 0 {
-			followersChannel <- 0
-			close(followersChannel)
-			log.Println(mspray("[Linger Proxy]: No Followers Tag"))
-  		return
-		}
+	jsonString := pageHTML[startIndex:]
 
-		jsonString := pageHTML[startIndex:]
+	var followers int //result
 
-    var followers int //result
+	//search tag by regexp
+	re := regexp.MustCompile(`"followerCount":\s*(\d+)`)
+	match := re.FindStringSubmatch(jsonString)
+	if len(match) == 2 {
+		followers, _ = strconv.Atoi(match[1])
+		followersChannel <- followers
+		log.Println(mspray("[Linger Proxy]: Followers"), followers)
+	}
 
-		//search tag by regexp
-		re := regexp.MustCompile(`"followerCount":\s*(\d+)`)
-		match := re.FindStringSubmatch(jsonString)
-		if len(match) == 2 {
-			followers, _ = strconv.Atoi(match[1])
-      followersChannel <- followers
-      log.Println(mspray("[Linger Proxy]: Followers"), followers)
-		}
+	close(followersChannel)
 
 }
 
+// GetSecUid
+func (s *Linger) GetSecUid(pageHTML string, secUidChannel chan<- string) {
+	secUidIndex := strings.Index(pageHTML, `"secUid":"`)
 
+	var secUid string
 
+	if secUidIndex > 0 {
+		secUidJson := pageHTML[secUidIndex:]
+		secUidRegex := regexp.MustCompile(`"secUid"\s*:\s*"([^"]+)"\,`)
+		secUidMatch := secUidRegex.FindStringSubmatch(secUidJson)
+		if len(secUidMatch) == 2 {
+			secUid = secUidMatch[1]
+			secUidChannel <- secUid
 
-//GetSecUid
-func (s *Linger) GetSecUid(pageHTML string, secUidChannel chan<- string){
-    secUidIndex := strings.Index(pageHTML, `"secUid":"`)
+		}
+	} else {
+		secUidChannel <- ""
+		close(secUidChannel)
+		log.Println(mspray("[Linger Proxy]: No SecUid Tag"))
+		return
+	}
+}
 
-    var secUid string
+// GetId
+func (s *Linger) GetId(pageHTML string, idChannel chan<- int) {
+	idIndex := strings.Index(pageHTML, `{"user":{"id":"`)
 
-		if secUidIndex > 0 {
-			secUidJson := pageHTML[secUidIndex:]
-			secUidRegex := regexp.MustCompile(`"secUid"\s*:\s*"([^"]+)"\,`)
-			secUidMatch := secUidRegex.FindStringSubmatch(secUidJson)
-			if len(secUidMatch) == 2 {
-				secUid = secUidMatch[1]
-        secUidChannel <- secUid
+	var id int
 
+	if idIndex > 0 {
+		idJson := pageHTML[idIndex:]
+		idRegex := regexp.MustCompile(`{"user":{"id":"\s*(\d+)`)
+		idMatch := idRegex.FindStringSubmatch(idJson)
+
+		if len(idMatch) == 2 {
+			id, _ = strconv.Atoi(idMatch[1])
+			idChannel <- id
+
+		}
+	} else {
+		idChannel <- 0
+		close(idChannel)
+		log.Println(mspray("[Linger Proxy]: No Id Tag"))
+		return
+	}
+
+}
+
+// GetRedirectUrl
+func (s *Linger) GetRedirectUrl(pageHTML string, redirectUrlChannel chan<- string) {
+	//redirectURL, captcha
+
+	redirectUrlIndex := strings.Index(pageHTML, `"redirectUrl":"`)
+	if redirectUrlIndex > 0 {
+		redirectUrlJson := pageHTML[redirectUrlIndex:]
+		redirectUrlRegex := regexp.MustCompile(`"redirectUrl":"([^"]+)"`)
+		redirectUrlMatch := redirectUrlRegex.FindStringSubmatch(redirectUrlJson)
+		if len(redirectUrlMatch) == 2 {
+			//log.Println(yspray("Raw redirectUrl: " + redirectUrlMatch[1]))
+			_redirectResult, err := decodeString(redirectUrlMatch[1])
+			if err != nil {
+				log.Println("decodeString error: ", err)
 			}
-		}else{
-      secUidChannel <- ""
-			close(secUidChannel)
-			log.Println(mspray("[Linger Proxy]: No SecUid Tag"))
-  		return
+			redirectUrlChannel <- _redirectResult
+			log.Println(yspray("Found redirectUrl: " + _redirectResult))
 		}
 
+	} else {
+		redirectUrlChannel <- ""
+		close(redirectUrlChannel)
+		log.Println(mspray("[Linger Proxy]: No RedirectURL Tag"))
+		return
+	}
 
 }
 
-//GetId
-func (s *Linger) GetId(pageHTML string, idChannel chan<-int){
-  		idIndex := strings.Index(pageHTML, `{"user":{"id":"`)
+func decodeString(input string) (string, error) {
+	// Декодирование JSON строки
+	var decodedStr string
+	err := json.Unmarshal([]byte(`"`+input+`"`), &decodedStr)
+	if err != nil {
+		return "", fmt.Errorf("ошибка при декодировании JSON: %v", err)
+	}
 
-  	var id int
+	// Замена escape-последовательностей Unicode
+	decodedStr, err = strconv.Unquote(`"` + decodedStr + `"`)
+	if err != nil {
+		return "", fmt.Errorf("ошибка при раскодировании escape-последовательностей: %v", err)
+	}
 
-		if idIndex > 0 {
-			idJson := pageHTML[idIndex:]
-			idRegex := regexp.MustCompile(`{"user":{"id":"\s*(\d+)`)
-			idMatch := idRegex.FindStringSubmatch(idJson)
-
-			if len(idMatch) == 2 {
-				id, _ = strconv.Atoi(idMatch[1])
-				 idChannel <- id
-
-			}
-		}else{
-      idChannel <- 0
-			close(idChannel)
-			log.Println(mspray("[Linger Proxy]: No Id Tag"))
-  		return
-		}
-
+	return decodedStr, nil
 }
-
-//TODO
-//GetRedirectUrl
-func (s *Linger) GetRedirectUrl(pageHTML string, redirectUrlChannel chan<- string){
-    //redirectURL, captcha
-
-		redirectUrlIndex := strings.Index(pageHTML, `"redirectUrl":"`)
-
-		if redirectUrlIndex > 0 {
-			redirectUrlJson := pageHTML[redirectUrlIndex:]
-			redirectUrlRegex := regexp.MustCompile(`"redirectUrl":"([^"]+)"`)
-			redirectUrlMatch := redirectUrlRegex.FindStringSubmatch(redirectUrlJson)
-      if len(redirectUrlMatch) == 2 {
-          log.Println(yspray("Raw redirectUrl: " + redirectUrlMatch[1]))
-          _redirectResult, err := decodeString(redirectUrlMatch[1])
-          	if err != nil{
-            log.Println("decodeString error: ", err)
-		        }
-            redirectUrlChannel <- _redirectResult
-		        log.Println(yspray("Found redirectUrl: " + _redirectResult))
-      }
-
-		}else{
-		  redirectUrlChannel <- ""
-			close(redirectUrlChannel)
-			log.Println(mspray("[Linger Proxy]: No RedirectURL Tag"))
-  		return
-		}
-
-
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string, int, string) {
 
@@ -253,17 +242,10 @@ func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string, int, string) 
 	var id int
 	var pageHTML string
 	_prefix := "https://tiktok.com/@"
-	rand.Seed(time.Now().UnixNano())
-
-	//todo random element from DeviceHeader
-
-	//randomElementIndex := rand.Intn(len(s.DeviceHeader))
 
 	c.OnHTML("html", func(e *colly.HTMLElement) {
 
-		e.Response.Headers.Set("User-Agent", "")
-		//log.Println(yspray("[User-Agent]: " + s.DeviceHeader[randomElementIndex]))
-
+		//e.Response.Headers.Set("User-Agent", "")
 		pageHTML = e.Text
 		file, err := os.Create("out.txt")
 		if err != nil {
@@ -345,9 +327,13 @@ func (s *Linger) ScrapTikTok(tiktokUrl string) (bool, int, string, int, string) 
 
 }
 
-func (s *Linger) ScrapBioLink(extractedBio string) ([]string, []string, error) {
+func (s *Linger) ScrapBioLink(extractedBio string, client *http.Client) ([]string, []string, error) {
 	log.Println(gspray("[Linger]: Scrapping bio for "), extractedBio)
 	c := colly.NewCollector()
+
+	if client != nil {
+		c.WithTransport(client.Transport)
+	}
 
 	var BioLinks []string
 	var InternalLinks []string
@@ -382,6 +368,7 @@ func (s *Linger) ScrapBioLink(extractedBio string) ([]string, []string, error) {
 	return BioLinks, InternalLinks, nil
 }
 
+// main function to scrap bio and internal links
 func (s *Linger) StartScrapping(username string, pageHTML string) ([]string, []string, error) {
 
 	c := colly.NewCollector()
@@ -389,7 +376,7 @@ func (s *Linger) StartScrapping(username string, pageHTML string) ([]string, []s
 	var BioLinks []string
 	var InternalLinks []string
 
-	//Extracting BioLink from json start with tag bioLink
+	//Extracting BioLink from json begins with tag bioLink
 	extractedBio := ""
 	//find all html
 	//find text starts with bioLink
@@ -401,8 +388,8 @@ func (s *Linger) StartScrapping(username string, pageHTML string) ([]string, []s
 
 	//text started with bioLink
 	jsonString := pageHTML[startIndex:]
-	//log.Println(jsonString)
-	//our reg
+
+	//our regex
 	reg := regexp.MustCompile(`"link":"(.*?)"`)
 	match := reg.FindStringSubmatch(jsonString)
 
@@ -412,6 +399,7 @@ func (s *Linger) StartScrapping(username string, pageHTML string) ([]string, []s
 		res, err := decodeBio(bioLink)
 		extractedBio = res
 		if err != nil {
+			log.Println("decodeBio error: ", err)
 		}
 		log.Println(yspray("Extracted Bio: " + res))
 	}
@@ -444,33 +432,6 @@ func (s *Linger) StartScrapping(username string, pageHTML string) ([]string, []s
 
 	})
 
-	/*
-	   for _, v := range BioLinks {
-	       log.Println("bioLinks: ", v)
-	   }
-
-	   for _, v := range InternalLinks {
-	       log.Println("internalLinks: ", v)
-	   }
-	*/
-
 	return BioLinks, InternalLinks, nil
 
-}
-
-func decodeString(input string) (string, error) {
-	// Декодирование JSON строки
-	var decodedStr string
-	err := json.Unmarshal([]byte(`"`+input+`"`), &decodedStr)
-	if err != nil {
-		return "", fmt.Errorf("ошибка при декодировании JSON: %v", err)
-	}
-
-	// Замена escape-последовательностей Unicode
-	decodedStr, err = strconv.Unquote(`"` + decodedStr + `"`)
-	if err != nil {
-		return "", fmt.Errorf("ошибка при раскодировании escape-последовательностей: %v", err)
-	}
-
-	return decodedStr, nil
 }
