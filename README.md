@@ -88,3 +88,6 @@ GET /api/bio?username=https://linktr.ee/deftones
 
 # Filter Configuration
 You can configure filters to process links found within user biographies. Filters are stored in text files in the filter directory. You can edit and customize these files to define rules for analyzing bio links.
+
+# Artillery Tests
+Multiple stress tests conducted using Artillery have demonstrated that LingerAPI is capable of processing up to 70 to 100 requests per second under optimal conditions.
