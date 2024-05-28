@@ -1,10 +1,19 @@
-package main
+package server
 
 import (
+	"LingerAPI/internal/linger"
+	"LingerAPI/internal/proxy"
+	"LingerAPI/pkg/filter"
+	"LingerAPI/pkg/spray"
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/joho/godotenv"
 )
+
+var semaphore = make(chan struct{}, 64)
 
 type LingerServer struct {
 	Host string
@@ -31,9 +40,15 @@ type NotFoundData struct {
 }
 
 func NewLingerServer() *LingerServer {
+
+	err := godotenv.Load("../configs/.env")
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
 	return &LingerServer{
-		Host: "localhost",
-		Port: "3030",
+		Host: os.Getenv("HOST"),
+		Port: os.Getenv("PORT"),
 	}
 
 }
@@ -42,15 +57,16 @@ func (s *LingerServer) StartServer() {
 
 	serverIP := s.Host + ":" + s.Port
 	//filters init
-	bioFilter := readFilterFromFile("filter/bio.txt")
-	internalFilter := readFilterFromFile("filter/soc.txt")
+	bioFilter := filter.ReadFilterFromFile("../configs/filter/bio.txt")
+	internalFilter := filter.ReadFilterFromFile("../configs/filter/soc.txt")
 
-	log.Println(mspray(" _ _                 _____ _____ _____ "))
-	log.Println(mspray("| |_|___ ___ ___ ___|  _  |  _  |     |"))
-	log.Println(mspray("| | |   | . | -_|  _|     |   __|-   -|"))
-	log.Println(mspray("|_|_|_|_|_  |___|_| |__|__|__|  |_____|"))
-	log.Println(mspray("        |___|                          "))
-	log.Println(mspray("[LingerAPI]: Started at: "), serverIP)
+	log.Println(spray.Mspray(" _ _                 _____ _____ _____ "))
+	log.Println(spray.Mspray("| |_|___ ___ ___ ___|  _  |  _  |     |"))
+	log.Println(spray.Mspray("| | |   | . | -_|  _|     |   __|-   -|"))
+	log.Println(spray.Mspray("|_|_|_|_|_  |___|_| |__|__|__|  |_____|"))
+	log.Println(spray.Mspray("        |___|                          "))
+	log.Println(spray.Mspray("[LingerAPI]: Started at: "), serverIP)
+	log.Println(spray.Mspray("[LingerAPI]: Your proxy: "), os.Getenv("PROXY"))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "LingerAPI", http.StatusNotFound)
@@ -59,8 +75,12 @@ func (s *LingerServer) StartServer() {
 	//api/bio endpoint handler
 	http.HandleFunc("/api/bio", func(w http.ResponseWriter, r *http.Request) {
 
+		//semaphore queue to load balance
+		semaphore <- struct{}{}
+		defer func() { <-semaphore }()
+
 		//proxy
-		proxyURL, proxyUrlError := parseProxy()
+		proxyURL, proxyUrlError := proxy.ParseProxy()
 		if proxyUrlError != nil {
 			log.Fatalf("Url Proxy error: ", proxyUrlError)
 		}
@@ -70,14 +90,14 @@ func (s *LingerServer) StartServer() {
 			Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
 		}
 
-		linger := NewLinger(bioFilter, internalFilter)
+		linger := linger.NewLinger(bioFilter, internalFilter)
 
 		name := r.URL.Query().Get("username")
 		var responseData interface{}
-		bio, internalLinks, err := linger.ScrapBioLink(name, client)
+		bio, internalLinks, _ := linger.ScrapBioLink(name, client)
 
 		if internalLinks == nil {
-			log.Println(rspray("[Linger]: No Soclinks for"), name)
+			log.Println(spray.Rspray("[Linger]: No Soclinks for"), name)
 			responseData = NotFoundData{
 				Message: "no soclinks for " + name,
 			}
@@ -106,6 +126,10 @@ func (s *LingerServer) StartServer() {
 	})
 	//api/tiktok endpoint handler
 	http.HandleFunc("/api/tiktok", func(w http.ResponseWriter, r *http.Request) {
+		//semaphore queue to load balance
+		semaphore <- struct{}{}
+		defer func() { <-semaphore }()
+
 		if r.URL.Query().Get("username") == "" {
 			w.Header().Set("Content-Type", "application/json")
 			jsonData, _ := json.Marshal(NotFoundData{
@@ -117,7 +141,7 @@ func (s *LingerServer) StartServer() {
 		}
 
 		_responseCode := http.StatusOK
-		linger := NewLinger(bioFilter, internalFilter)
+		linger := linger.NewLinger(bioFilter, internalFilter)
 		//get request
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method is not available", http.StatusMethodNotAllowed)
@@ -125,7 +149,7 @@ func (s *LingerServer) StartServer() {
 		}
 
 		//proxy
-		proxyURL, proxyUrlError := parseProxy()
+		proxyURL, proxyUrlError := proxy.ParseProxy()
 		if proxyUrlError != nil {
 			log.Fatalf("Url Proxy error: ", proxyUrlError)
 		}
@@ -194,7 +218,7 @@ func (s *LingerServer) StartServer() {
 					Message: "tt is not found",
 				}
 				_responseCode = http.StatusNotFound
-				log.Println(rspray("[Linger]: tt is not found | " + name))
+				log.Println(spray.Rspray("[Linger]: tt is not found | " + name))
 			}
 
 		}
